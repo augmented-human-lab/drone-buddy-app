@@ -70,6 +70,7 @@ export class UdpSocket {
         'System Actions',
         ' UDP SOCKET',
         `Sent message: ${message.toString()} to ${this._host}:${this._port}`,
+        '',
       );
     }
   }

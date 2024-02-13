@@ -20,7 +20,7 @@ export class Logger {
     messageType: string,
     destination: string,
     message: string,
-    error: Error,
+    error: any,
   ) {
     console.log(
       '🔴 Error: ',

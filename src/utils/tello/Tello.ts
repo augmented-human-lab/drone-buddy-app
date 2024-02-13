@@ -64,7 +64,12 @@ export class Tello {
   }
 
   send(command: string) {
-    Logger.log_info('System Actions', ' TELLO', `Sending command: ${command}`);
+    Logger.log_info(
+      'System Actions',
+      ' TELLO',
+      `Sending command: ${command}`,
+      '',
+    );
     this._socket.send(command);
   }
 

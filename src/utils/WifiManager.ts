@@ -1,4 +1,5 @@
 import {NativeModules} from 'react-native';
+import {Logger} from './Logger.ts';
 
 // Define TypeScript interface for your native module methods
 interface DroneBuddyWifiManager {
@@ -28,8 +29,13 @@ export async function toggleWifi(enable: boolean) {
         },
       );
     });
-    console.log('WiFi enabled:', result);
+    Logger.log_success(
+      'System Actions',
+      ' WIFI MANAGER',
+      'WiFi enabled:',
+      result,
+    );
   } catch (error) {
-    console.error('Error toggling WiFi:', error);
+    Logger.log_error('System Actions', ' WIFI MANAGER', 'WiFi error:', error);
   }
 }
