@@ -5,6 +5,8 @@ import {
   TouchableHighlight,
   PermissionsAndroid,
   Platform,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 
 import Voice, {
@@ -413,29 +415,45 @@ class Home extends Component<Props, State> {
             waitFor={this.doubleTapRef}>
             <View style={styles.container}>
               <TouchableHighlight
-                style={styles.buttonStart}
-                onPress={this._droneTakeOff}>
-                <Text style={styles.buttonText}>Take-off</Text>
+                onPress={this._droneTakeOff}
+                style={styles.circleButton}>
+                <Image
+                  source={require('../../assets/drone.png')} // Replace with your settings icon
+                  style={styles.circleButtonImage}
+                />
               </TouchableHighlight>
               <TouchableHighlight
-                style={styles.buttonEnd}
-                onPress={this._droneLand}>
-                <Text style={styles.buttonText}>Land</Text>
+                onPress={this._droneLand}
+                style={styles.circleButton}>
+                <Image
+                  source={require('../../assets/down.png')} // Replace with your settings icon
+                  style={styles.circleButtonImage}
+                />
               </TouchableHighlight>
               <TouchableHighlight
-                style={styles.buttonQuest}
-                onPress={this._droneGetBattery}>
-                <Text style={styles.buttonText}>Battery</Text>
+                onPress={this._droneGetBattery}
+                style={styles.circleButton}>
+                <Image
+                  source={require('../../assets/battery.png')} // Replace with your settings icon
+                  style={styles.circleButtonImage}
+                />
               </TouchableHighlight>
-              <Text style={styles.transcribedText}>
-                {this.state.results[0]}
-              </Text>
-
-              <TouchableHighlight
-                style={styles.buttonQuest}
-                onPress={this.navigateToSettings}>
-                <Text style={styles.buttonText}>Go to settings</Text>
-              </TouchableHighlight>
+              {!this.state.isListening && (
+                <Text style={styles.listeningInstructionText}>
+                  Double tap to start listening
+                </Text>
+              )}
+              {this.state.isListening && (
+                <View style={styles.overlay}>
+                  <Text style={styles.listeningInstructionText}>Listening...</Text>
+                  <ActivityIndicator size="large" />
+                </View>
+              )}
+              <View style={styles.recognizedTextContainer}>
+                <Text style={styles.recognizedText}>
+                  Recognized: {this.state.results[0]}
+                </Text>
+              </View>
             </View>
           </TapGestureHandler>
         </TapGestureHandler>
