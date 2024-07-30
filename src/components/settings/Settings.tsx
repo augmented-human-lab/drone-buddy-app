@@ -15,7 +15,7 @@ interface State {
 
 class SettingsPage extends Component<Props, State> {
   state: State = {
-    ipAddress: '',
+    ipAddress: '172.26.62.54',
   };
 
   handleSave = () => {
@@ -26,10 +26,14 @@ class SettingsPage extends Component<Props, State> {
   render() {
     return (
       <View style={styles.container}>
-        <Text>Settings Screen</Text>
+        <Text style={styles.title}>Server Connection</Text>
+        <Text style={styles.subText}>
+          Set the IP address of the server you want to connect to
+        </Text>
         <TextInput
           style={styles.input}
           placeholder="Enter IP Address"
+          placeholderTextColor="#aaa" // Match placeholder text color
           value={this.state.ipAddress}
           onChangeText={ipAddress => this.setState({ipAddress})}
         />

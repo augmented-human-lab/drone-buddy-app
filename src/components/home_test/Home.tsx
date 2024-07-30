@@ -2,19 +2,17 @@ import React, {Component} from 'react';
 import {
   Text,
   View,
+  TouchableHighlight,
   PermissionsAndroid,
   Platform,
-  TextInput,
-  TouchableOpacity,
-  Image,
 } from 'react-native';
-import {ScrollView} from 'react-native';
 
 import Voice, {
   SpeechRecognizedEvent,
   SpeechResultsEvent,
   SpeechErrorEvent,
 } from '@react-native-voice/voice';
+import APIService from '../../services/APIService.js';
 import Tts from 'react-native-tts';
 import {Tello} from '../../utils/tello/Tello.ts';
 
@@ -27,22 +25,15 @@ import {
 } from 'react-native-gesture-handler';
 import {Logger} from '../../utils/Logger.ts';
 import {io} from 'socket.io-client';
+import {toggleWifi} from '../../utils/WifiManager.ts';
 import {RootStackParamList} from '../../../AppNavigator.tsx';
 import {NavigationProp, RouteProp} from '@react-navigation/native';
-import LinearGradient from 'react-native-linear-gradient';
-import Sound from 'react-native-sound';
-import {Animated} from 'react-native';
-import GifOrButtonComponent from '../common/GifOrButtonComponent.tsx';
-import LottieView from 'lottie-react-native';
 
 // type Props = {};
 interface Props {
   navigation: NavigationProp<RootStackParamList, 'Home'>;
   route: RouteProp<RootStackParamList, 'Home'>;
 }
-
-// Enable playback in silence mode (iOS only)
-Sound.setCategory('Playback');
 
 type State = {
   recognized: string;
@@ -56,12 +47,6 @@ type State = {
   partialResults: string[];
   isConnected: boolean;
   ipAddress?: string;
-  inputText: '';
-  isStartButtonPressed: boolean;
-  isSoundPlaying: boolean;
-  isTtsSpeaking: boolean;
-  start_button_text: string;
-  currentProcess: string;
 };
 
 class Home extends Component<Props, State> {
@@ -78,11 +63,6 @@ class Home extends Component<Props, State> {
     results: [],
     partialResults: [],
     ipAddress: this.props.route.params?.ipAddress,
-    isStartButtonPressed: false,
-    isSoundPlaying: false,
-    isTtsSpeaking: false, // New state to track if TTS is speaking
-    start_button_text: 'Start',
-    currentProcess: '',
   };
   doubleTapRef = React.createRef();
 
@@ -91,8 +71,6 @@ class Home extends Component<Props, State> {
 
   SERVER_IP = '172.20.10.2'; // Example IP, replace with your server's IP
   SERVER_PORT = '65432'; // The port your Python script is listening on
-  private loadingSound: Sound;
-
   constructor(props: Props) {
     super(props);
     Voice.onSpeechStart = this.onSpeechStart;
@@ -102,8 +80,6 @@ class Home extends Component<Props, State> {
     Voice.onSpeechResults = this.onSpeechResults;
     Voice.onSpeechPartialResults = this.onSpeechPartialResults;
     Voice.onSpeechVolumeChanged = this.onSpeechVolumeChanged;
-
-    this.loadingSound = null;
 
     this.socket = null;
   }
@@ -131,15 +107,10 @@ class Home extends Component<Props, State> {
     this.props.navigation.navigate('Settings');
   };
   onSingleTap = (event: {nativeEvent: {state: number}}) => {
-    if (
-      event.nativeEvent.state === State.ACTIVE &&
-      !this.state.isStartButtonPressed
-    ) {
+    if (event.nativeEvent.state === State.ACTIVE) {
       Logger.log_info('User Actions', 'MAIN', 'Single tapped');
       if (this.state.isListening) {
         this._stopRecognizing();
-      } else {
-        this._onStart();
       }
     }
   };
@@ -155,94 +126,70 @@ class Home extends Component<Props, State> {
     }
   };
 
-  _onStart = () => {
-    // update the view to show the user that the app is listening
-    console.log('start method called');
-    this.setState(
-      {isListening: !this.state.isListening, isStartButtonPressed: true},
-      () => {
-        console.log('isListening', this.state.isListening);
-        if (!this.state.isListening) {
-          this._stopRecognizing();
-        } else {
-          this._startRecognizing();
-        }
-      },
-    );
-  };
-
   componentWillUnmount() {
     // destroy the voice recognition instance
     Voice.destroy().then(Voice.removeAllListeners);
 
-    // Release the sound object to free up resources
-    if (this.loadingSound) {
-      this.loadingSound.release();
-    }
-
     // Remove TTS event listeners
-    Tts.removeEventListener('tts-start', this.handleTtsStart);
-    Tts.removeEventListener('tts-finish', this.handleTtsFinish);
-    Tts.removeEventListener('tts-cancel', this.handleTtsFinish);
-    Tts.removeEventListener('tts-error', this.handleTtsError);
+    Tts.removeEventListener('tts-start', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS start listener removed',
+        event,
+      ),
+    );
+    Tts.removeEventListener('tts-finish', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS finish listener removed',
+        event,
+      ),
+    );
+    Tts.removeEventListener('tts-cancel', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS cancel listener removed',
+        event,
+      ),
+    );
+    Tts.removeEventListener('tts-error', event => console.error(event));
 
     if (this.socket) {
       this.socket.disconnect();
     }
   }
 
-  playLoadingSound = () => {
-    if (this.loadingSound) {
-      this.loadingSound.play(success => {
-        if (success) {
-          this.setState({start_button_text: 'processing'});
-          console.log('Sound played successfully');
-          this.playLoadingSound();
-          this.setState({isSoundPlaying: true});
-        } else {
-          console.error('Sound playback failed');
-        }
-      });
-    }
-  };
-
-  stopLoadingSound = () => {
-    if (this.loadingSound) {
-      this.loadingSound.stop(() => {
-        console.log('Sound stopped');
-        this.setState({start_button_text: 'Start'});
-
-        this.setState({isSoundPlaying: false});
-      });
-    }
-  };
-
-  startAction = () => {
-    if (this.state.isSoundPlaying) {
-      this.stopLoadingSound();
-    } else {
-      this.playLoadingSound();
-    }
-  };
-
   componentDidMount() {
-    // Load the sound file from the assets
-    this.loadingSound = new Sound('loading.mp3', Sound.MAIN_BUNDLE, error => {
-      if (error) {
-        console.error('Failed to load the sound', error);
-        return;
-      }
-      // Loaded successfully
-      console.log('Sound loaded successfully');
-    });
-    this.loadingSound.setNumberOfLoops(-1);
-
     this.requestMicrophonePermission();
     // Set up TTS event listeners
-    Tts.addEventListener('tts-start', this.handleTtsStart);
-    Tts.addEventListener('tts-finish', this.handleTtsFinish);
-    Tts.addEventListener('tts-cancel', this.handleTtsFinish); // Handle cancel as finish
-    Tts.addEventListener('tts-error', this.handleTtsError);
+    Tts.addEventListener('tts-start', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS start listener added',
+        event,
+      ),
+    );
+    Tts.addEventListener('tts-finish', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS finish listener added',
+        event,
+      ),
+    );
+    Tts.addEventListener('tts-cancel', event =>
+      Logger.log_info(
+        'Voice Recognition',
+        'HOME',
+        'TTS cancel listener added',
+        event,
+      ),
+    );
+    Tts.addEventListener('tts-error', event => console.error(event));
 
     Tts.setDefaultLanguage('en-US');
     if (Platform.OS === 'ios') {
@@ -256,38 +203,8 @@ class Home extends Component<Props, State> {
     Tts.setDefaultPitch(0.5);
   }
 
-  handleTtsStart = () => {
-    Logger.log_info('Voice Recognition', 'HOME', 'TTS started');
-    this.setState({isTtsSpeaking: true});
-    this.setState({
-      isListening: !this.state.isListening,
-      isStartButtonPressed: true,
-    });
-    this.stopLoadingSound(); // Stop the loading sound when TTS starts
-  };
-
-  handleTtsFinish = () => {
-    Logger.log_info('Voice Recognition', 'HOME', 'TTS finished');
-    this.setState({isTtsSpeaking: false});
-    this.setState({
-      isListening: !this.state.isListening,
-      isStartButtonPressed: true,
-    });
-    // this.playLoadingSound(); // Optionally restart the loading sound if needed
-  };
-
-  handleTtsError = (error: any) => {
-    Logger.log_error('Voice Recognition', 'HOME', 'TTS error', error);
-    this.setState({isTtsSpeaking: false});
-    this.setState({
-      isListening: !this.state.isListening,
-      isStartButtonPressed: true,
-    }); // this.playLoadingSound(); // Optionally restart the loading sound if needed
-  };
-
   connectToSocket() {
     this.socket = io(`http://${this.SERVER_IP}:${this.SERVER_PORT}`, {
-      transports: ['websocket'], // Use WebSocket for transport
       transports: ['websocket'], // Use WebSocket for transport
     });
 
@@ -309,23 +226,8 @@ class Home extends Component<Props, State> {
 
     this.socket.on('server_message', (msg: {data: any}) => {
       Logger.log_info('WS', 'Home', 'Message received from the socket :', msg);
-
-      // @ts-ignore
-      if (msg.type === 'SPEECH' && msg.data !== '') {
+      if (msg.data !== '') {
         this.speak(msg.data);
-        this.stopLoadingSound();
-      }
-      // @ts-ignore
-      if (msg.type === 'LOADER' && msg.data !== '') {
-        if (msg.data === true) {
-          this.playLoadingSound();
-        } else {
-          this.stopLoadingSound();
-        }
-      }
-      // @ts-ignore
-      if (msg.type === 'PROCESS' && msg.data !== '') {
-        this.setState({currentProcess: msg.data});
       }
     });
 
@@ -338,7 +240,7 @@ class Home extends Component<Props, State> {
       );
       this.setState({isConnected: false});
     });
-    this.socket.on('connect_error', (error: Error) => {
+    this.socket.on('connect_error', error => {
       Logger.log_error(
         'WS',
         'Home',
@@ -356,7 +258,6 @@ class Home extends Component<Props, State> {
       Logger.log_info('Web Socket', 'HOME', 'Not connected to server', '');
     }
   };
-
   // request permission from the user to access the microphone
   // this method will execute everytime the app is opened
   // user will be prompted to allow microphone access if they havent already
@@ -409,16 +310,12 @@ class Home extends Component<Props, State> {
     Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
     this.setState({
       recognized: '√',
-      isListening: false,
-      isStartButtonPressed: true,
     });
   };
 
   onSpeechEnd = (e: any) => {
     this.setState({
       end: '√',
-      isListening: false,
-      isStartButtonPressed: true,
     });
   };
 
@@ -427,26 +324,19 @@ class Home extends Component<Props, State> {
 
     this.setState({
       error: JSON.stringify(e.error),
-      isListening: false,
-      isStartButtonPressed: true,
     });
   };
 
   onSpeechResults = (e: SpeechResultsEvent) => {
     Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
-    // @ts-ignore
     this.setState({
       results: e.value,
-      isListening: false,
-      isStartButtonPressed: true,
     });
-    this.setState({start_button_text: 'Start'});
     this.sendMessage(this.state.results[0], 'RECOGNITION');
   };
 
   onSpeechPartialResults = (e: SpeechResultsEvent) => {
     Logger.log_info('Speech Recognition', 'MAIN', 'Partial Results', e);
-    // @ts-ignore
     this.setState({
       partialResults: e.value,
     });
@@ -459,7 +349,6 @@ class Home extends Component<Props, State> {
   };
 
   _startRecognizing = async () => {
-    this.setState({start_button_text: 'Listening'});
     this.setState({
       recognized: '',
       pitch: '',
@@ -484,7 +373,6 @@ class Home extends Component<Props, State> {
         isListening: false,
       });
       await Voice.stop();
-      this.setState({start_button_text: 'Start'});
     } catch (e) {
       console.error(e);
     }
@@ -512,20 +400,7 @@ class Home extends Component<Props, State> {
     Tts.stop();
   };
 
-  handleSend = () => {
-    // @ts-ignore
-    const {inputText} = this.state;
-    if (inputText.trim()) {
-      console.log('Sending:', inputText);
-      // Add your send logic here, e.g., send the inputText to a server or handle it within the app
-      this.sendMessage(inputText, 'RECOGNITION');
-      this.setState({inputText: ''}); // Clear the input field after sending
-    }
-  };
-
   render() {
-    // @ts-ignore
-    // @ts-ignore
     return (
       <GestureHandlerRootView style={{flex: 1}}>
         <TapGestureHandler
@@ -537,81 +412,41 @@ class Home extends Component<Props, State> {
             onHandlerStateChange={this.onSingleTap}
             waitFor={this.doubleTapRef}>
             <View style={styles.container}>
-              <View style={styles.buttonContainer}>
-                <LinearGradient
-                  colors={['#6FCF62', '#2FA49D']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneTakeOff}>
-                    <Text style={styles.buttonText}>Takeoff</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-                <LinearGradient
-                  colors={['#FD814A', '#FC4A3A']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneLand}>
-                    <Text style={styles.buttonText}>Land</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-                <LinearGradient
-                  colors={['#1D60B7', '#272F92']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneGetBattery}>
-                    <Text style={styles.buttonText}>Battery</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-              </View>
 
-              <View style={styles.spacer} />
-              <Text style={styles.helloText}>{this.state.currentProcess}</Text>
-              <TouchableOpacity onPress={this._onStart}>
-                <View style={styles.mainButtonContainer}>
-                  {this.state.isListening ? (
-                    <LottieView
-                      source={require('../../assets/animations/animation.json')}
-                      autoPlay
-                      loop
-                      style={styles.animation}
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={['#466bd9', '#f50cf8']}
-                      style={styles.startButton}
-                      start={{x: 0, y: 0.5}} // Start from the left center
-                      end={{x: 1, y: 0.5}} // End at the right center
-                    >
-                      <Text style={styles.startButtonText}>
-                        {this.state.start_button_text}
-                      </Text>
-                    </LinearGradient>
-                  )}
-                </View>
-              </TouchableOpacity>
+             <TouchableHighlight
+                            style={styles.buttonSettings}
+                            onPress={this.navigateToSettings}>
+                            <Text style={styles.buttonText}>Settings</Text>
+              </TouchableHighlight>
 
-              <Text style={styles.helloText}>
-                You said : {this.state.results[0]}
-              </Text>
+              <TouchableHighlight
+                style={styles.buttonStart}
+                onPress={this._droneTakeOff}>
+                <Text style={styles.buttonText}>Take-off</Text>
+              </TouchableHighlight>
 
-              <View style={styles.flexibleSpace} />
+              <TouchableHighlight
+                style={styles.buttonEnd}
+                onPress={this._droneLand}>
+                <Text style={styles.buttonText}>Land</Text>
+              </TouchableHighlight>
 
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Type something ....."
-                  value={this.state.inputText}
-                  placeholderTextColor="#aaa"
-                  onChangeText={text => this.setState({inputText: text})}
-                />
-                <TouchableOpacity
-                  style={styles.sendButton}
-                  onPress={this.handleSend}>
-                  <Image
-                    source={{
-                      uri: 'https://img.icons8.com/ios-filled/50/ffffff/send.png',
-                    }}
-                    style={styles.sendIcon}
-                  />
-                </TouchableOpacity>
-              </View>
+              <TouchableHighlight
+                style={styles.buttonQuest}
+                onPress={this._droneGetBattery}>
+                <Text style={styles.buttonText}>Battery</Text>
+              </TouchableHighlight>
+
+
+              <TouchableHighlight
+                style={styles.buttonSpeak}
+                onPress={this.navigateToSettings}>
+                <Text style={styles.buttonText}>Start Speaking</Text>
+              </TouchableHighlight>
+                <Text style={styles.transcribedText}>
+                              {this.state.results[0]}
+                            </Text>
+
             </View>
           </TapGestureHandler>
         </TapGestureHandler>
