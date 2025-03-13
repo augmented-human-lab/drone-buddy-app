@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   Image,
 } from 'react-native';
-import {ScrollView} from 'react-native';
 
 import Voice, {
   SpeechRecognizedEvent,
@@ -16,9 +15,8 @@ import Voice, {
   SpeechErrorEvent,
 } from '@react-native-voice/voice';
 import Tts from 'react-native-tts';
-import {Tello} from '../../utils/tello/Tello.ts';
-
 import styles from './Home.styles'; // Import styles with TypeScript
+import {ToastAndroid} from 'react-native';
 
 import {
   TapGestureHandler,
@@ -26,13 +24,11 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import {Logger} from '../../utils/Logger.ts';
-import {io} from 'socket.io-client';
 import {RootStackParamList} from '../../../AppNavigator.tsx';
 import {NavigationProp, RouteProp} from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import Sound from 'react-native-sound';
-import {Animated} from 'react-native';
-import GifOrButtonComponent from '../common/GifOrButtonComponent.tsx';
+import RNFS from 'react-native-fs';
 import LottieView from 'lottie-react-native';
 
 // type Props = {};
@@ -47,7 +43,6 @@ Sound.setCategory('Playback');
 type State = {
   recognized: string;
   isListening: boolean;
-  isInAir: boolean;
   pitch: string;
   error: string;
   end: string;
@@ -56,45 +51,51 @@ type State = {
   partialResults: string[];
   isConnected: boolean;
   ipAddress?: string;
-  inputText: '';
+  inputText: string;
   isStartButtonPressed: boolean;
   isSoundPlaying: boolean;
   isTtsSpeaking: boolean;
   start_button_text: string;
   currentProcess: string;
+  ttsVoice: string;
+  ttsPitch: number;
+  ttsRate: number;
 };
 
 class Home extends Component<Props, State> {
   state = {
     recognized: '',
-    isDroneInit: false,
-    isConnected: false,
+    isListening: false,
     pitch: '',
     error: '',
     end: '',
     started: '',
-    isListening: false,
-    isInAir: false,
     results: [],
     partialResults: [],
     ipAddress: this.props.route.params?.ipAddress,
+    isConnected: false,
+    inputText: '',
     isStartButtonPressed: false,
     isSoundPlaying: false,
-    isTtsSpeaking: false, // New state to track if TTS is speaking
+    isTtsSpeaking: false,
     start_button_text: 'Start',
     currentProcess: '',
+    ttsVoice: this.props.route.params?.selectedVoice || 'en-US',
+    ttsPitch: this.props.route.params?.pitch || 0.5,
+    ttsRate: this.props.route.params?.rate || 1,
   };
   doubleTapRef = React.createRef();
 
-  drone: Tello | null = null;
-  socket: any;
+  webSocket: WebSocket | null = null;
 
-  SERVER_IP = '172.20.10.2'; // Example IP, replace with your server's IP
-  SERVER_PORT = '65432'; // The port your Python script is listening on
-  private loadingSound: Sound;
+  SERVER_IP = '172.20.10.3'; // Hardcoded server IP
+  SERVER_PORT = '65432'; // The port your server is listening on
+
+  private loadingSound: null;
 
   constructor(props: Props) {
     super(props);
+
     Voice.onSpeechStart = this.onSpeechStart;
     Voice.onSpeechRecognized = this.onSpeechRecognized;
     Voice.onSpeechEnd = this.onSpeechEnd;
@@ -104,17 +105,25 @@ class Home extends Component<Props, State> {
     Voice.onSpeechVolumeChanged = this.onSpeechVolumeChanged;
 
     this.loadingSound = null;
-
-    this.socket = null;
   }
 
   componentDidUpdate(prevProps: any) {
     // Check if the Home component received new parameters
+    console.log('Received new parameters:', this.props.route.params);
     if (
       this.props.route.params?.ipAddress !== prevProps.route.params?.ipAddress
     ) {
       this.setState({ipAddress: this.props.route.params?.ipAddress});
       // Optionally, perform other actions with the new IP address
+    }
+    // Check if the Home component received new TTS settings
+    if (this.props.route.params?.voice !== prevProps.route.params?.voice) {
+      console.log('Updating TTS settings:', this.props.route.params);
+      this.updateTtsSettings(
+        this.props.route.params?.voice,
+        this.props.route.params?.pitch,
+        this.props.route.params?.rate,
+      );
     }
     this.SERVER_IP = this.state.ipAddress;
     if (
@@ -122,89 +131,107 @@ class Home extends Component<Props, State> {
       this.state.ipAddress &&
       this.state.ipAddress !== ''
     ) {
-      this.connectToSocket();
+      this.connectToWebSocket();
     }
   }
 
-  navigateToSettings = () => {
-    console.log('navigating');
-    this.props.navigation.navigate('Settings');
+  // Method to update TTS settings
+  updateTtsSettings = (voice: string, pitch: number, rate: number) => {
+    this.setState({ttsVoice: voice, ttsPitch: pitch, ttsRate: rate}, () => {
+      Tts.setDefaultLanguage(this.state.ttsVoice);
+      Tts.setDefaultPitch(this.state.ttsPitch);
+      Tts.setDefaultRate(this.state.ttsRate);
+      Tts.setDefaultVoice(this.state.ttsVoice);
+    });
+    console.log('TTS settings updated:', voice, pitch, rate);
   };
-  onSingleTap = (event: {nativeEvent: {state: number}}) => {
-    if (
-      event.nativeEvent.state === State.ACTIVE &&
-      !this.state.isStartButtonPressed
-    ) {
-      Logger.log_info('User Actions', 'MAIN', 'Single tapped');
-      if (this.state.isListening) {
-        this._stopRecognizing();
+
+  onSpeechStart = (e: any) => {
+    this.setState({
+      started: '√',
+    });
+  };
+
+  onSpeechVolumeChanged = (e: any) => {
+    this.setState({
+      pitch: e.value,
+    });
+  };
+  onSpeechRecognized = (e: SpeechRecognizedEvent) => {
+    Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
+    this.setState({
+      recognized: '√',
+      isListening: false,
+      isStartButtonPressed: true,
+    });
+  };
+
+  onSpeechResults = (e: SpeechResultsEvent) => {
+    Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
+    // @ts-ignore
+    this.setState({
+      results: e.value,
+      isListening: false,
+      isStartButtonPressed: true,
+    });
+    this.setState({start_button_text: 'Start'});
+    this.sendMessage(this.state.results[0], 'RECOGNITION');
+  };
+
+  sendMessage = (message: any, type: string) => {
+    if (this.state.isConnected) {
+      Logger.log_info('Web Socket', 'HOME', 'Message sending', message);
+      if (message.trim() && this.webSocket && this.state.isConnected) {
+        const formatted_message = JSON.stringify({
+          target: 'MOBILE',
+          type: 'SYSTEM',
+          category: 'INPUT',
+          message: message,
+        });
+        console.log('Sending:', formatted_message);
+        this.webSocket.send(formatted_message);
+        this.setState({inputText: ''});
       } else {
-        this._onStart();
+        console.warn('WebSocket is not connected or input is empty');
       }
+    } else {
+      Logger.log_info('Web Socket', 'HOME', 'Not connected to server', '');
     }
   };
 
-  onDoubleTap = (event: {nativeEvent: {state: number}}) => {
-    if (event.nativeEvent.state === State.ACTIVE) {
-      Logger.log_info('User Actions', 'MAIN', 'Double tapped');
-      if (!this.state.isListening) {
-        this._startRecognizing();
-      } else {
-        this._stopRecognizing();
-      }
-    }
+  onSpeechPartialResults = (e: SpeechResultsEvent) => {
+    Logger.log_info('Speech Recognition', 'MAIN', 'Partial Results', e);
+    // @ts-ignore
+    this.setState({
+      partialResults: e.value,
+    });
+  };
+  onSpeechError = (e: SpeechErrorEvent) => {
+    Logger.log_error('Speech Recognition', 'MAIN', 'Error', e);
+
+    this.setState({
+      error: JSON.stringify(e.error),
+      isListening: false,
+      isStartButtonPressed: true,
+    });
+  };
+  onSpeechEnd = (e: any) => {
+    this.setState({
+      end: '√',
+      isListening: false,
+      isStartButtonPressed: true,
+    });
   };
 
-  _onStart = () => {
-    // update the view to show the user that the app is listening
-    console.log('start method called');
-    this.setState(
-      {isListening: !this.state.isListening, isStartButtonPressed: true},
-      () => {
-        console.log('isListening', this.state.isListening);
-        if (!this.state.isListening) {
-          this._stopRecognizing();
-        } else {
-          this._startRecognizing();
-        }
-      },
-    );
-  };
+  componentDidMount() {
+    this.requestMicrophonePermission();
 
-  componentWillUnmount() {
-    // destroy the voice recognition instance
-    Voice.destroy().then(Voice.removeAllListeners);
+    Tts.setDefaultLanguage('en-US');
+    Tts.setDefaultRate(0.5);
+    Tts.setDefaultPitch(0.5);
 
-    // Release the sound object to free up resources
-    if (this.loadingSound) {
-      this.loadingSound.release();
-    }
-
-    // Remove TTS event listeners
-    Tts.removeEventListener('tts-start', this.handleTtsStart);
-    Tts.removeEventListener('tts-finish', this.handleTtsFinish);
-    Tts.removeEventListener('tts-cancel', this.handleTtsFinish);
-    Tts.removeEventListener('tts-error', this.handleTtsError);
-
-    if (this.socket) {
-      this.socket.disconnect();
-    }
+    this.connectToWebSocket();
   }
-
-  playLoadingSound = () => {
-    if (this.loadingSound) {
-      this.loadingSound.play(success => {
-        if (success) {
-          this.setState({start_button_text: 'processing'});
-          console.log('Sound played successfully');
-          this.playLoadingSound();
-          this.setState({isSoundPlaying: true});
-        } else {
-          console.error('Sound playback failed');
-        }
-      });
-    }
-  };
 
   stopLoadingSound = () => {
     if (this.loadingSound) {
@@ -216,45 +243,6 @@ class Home extends Component<Props, State> {
       });
     }
   };
-
-  startAction = () => {
-    if (this.state.isSoundPlaying) {
-      this.stopLoadingSound();
-    } else {
-      this.playLoadingSound();
-    }
-  };
-
-  componentDidMount() {
-    // Load the sound file from the assets
-    this.loadingSound = new Sound('loading.mp3', Sound.MAIN_BUNDLE, error => {
-      if (error) {
-        console.error('Failed to load the sound', error);
-        return;
-      }
-      // Loaded successfully
-      console.log('Sound loaded successfully');
-    });
-    this.loadingSound.setNumberOfLoops(-1);
-
-    this.requestMicrophonePermission();
-    // Set up TTS event listeners
-    Tts.addEventListener('tts-start', this.handleTtsStart);
-    Tts.addEventListener('tts-finish', this.handleTtsFinish);
-    Tts.addEventListener('tts-cancel', this.handleTtsFinish); // Handle cancel as finish
-    Tts.addEventListener('tts-error', this.handleTtsError);
-
-    Tts.setDefaultLanguage('en-US');
-    if (Platform.OS === 'ios') {
-      Tts.setDefaultVoice('com.apple.ttsbundle.Moira-compact');
-      // Execute iOS specific code
-    } else if (Platform.OS === 'android') {
-      // Execute Android specific code
-      Tts.setDefaultVoice('ur-PK-language');
-    }
-    Tts.setDefaultRate(0.5);
-    Tts.setDefaultPitch(0.5);
-  }
 
   handleTtsStart = () => {
     Logger.log_info('Voice Recognition', 'HOME', 'TTS started');
@@ -285,177 +273,160 @@ class Home extends Component<Props, State> {
     }); // this.playLoadingSound(); // Optionally restart the loading sound if needed
   };
 
-  connectToSocket() {
-    this.socket = io(`http://${this.SERVER_IP}:${this.SERVER_PORT}`, {
-      transports: ['websocket'], // Use WebSocket for transport
-      transports: ['websocket'], // Use WebSocket for transport
-    });
+  componentWillUnmount() {
+    Voice.destroy().then(Voice.removeAllListeners);
 
-    Logger.log_info(
-      'WS',
-      'Home',
-      'Connecting to the web socket at ',
-      `http://${this.SERVER_IP}:${this.SERVER_PORT}`,
-    );
-    this.socket.on('connect', () => {
-      this.setState({isConnected: true});
-      Logger.log_success(
-        'WS',
-        'Home',
-        'Connected to the web socket at ',
-        `http://${this.SERVER_IP}:${this.SERVER_PORT}`,
-      );
-    });
+    if (this.webSocket) {
+      this.webSocket.close();
+    }
+    // Release the sound object to free up resources
+    if (this.loadingSound) {
+      this.loadingSound.release();
+    }
 
-    this.socket.on('server_message', (msg: {data: any}) => {
-      Logger.log_info('WS', 'Home', 'Message received from the socket :', msg);
-
-      // @ts-ignore
-      if (msg.type === 'SPEECH' && msg.data !== '') {
-        this.speak(msg.data);
-        this.stopLoadingSound();
-      }
-      // @ts-ignore
-      if (msg.type === 'LOADER' && msg.data !== '') {
-        if (msg.data === true) {
-          this.playLoadingSound();
-        } else {
-          this.stopLoadingSound();
-        }
-      }
-      // @ts-ignore
-      if (msg.type === 'PROCESS' && msg.data !== '') {
-        this.setState({currentProcess: msg.data});
-      }
-    });
-
-    this.socket.on('disconnect', () => {
-      Logger.log_info(
-        'WS',
-        'Home',
-        'Disconnected from the web socket at ',
-        `http://${this.SERVER_IP}:${this.SERVER_PORT}`,
-      );
-      this.setState({isConnected: false});
-    });
-    this.socket.on('connect_error', (error: Error) => {
-      Logger.log_error(
-        'WS',
-        'Home',
-        'Error connecting to the web socket at ',
-        error,
-      );
-    });
+    // Remove TTS event listeners
+    Tts.removeEventListener('tts-start', this.handleTtsStart);
+    Tts.removeEventListener('tts-finish', this.handleTtsFinish);
+    Tts.removeEventListener('tts-cancel', this.handleTtsFinish);
+    Tts.removeEventListener('tts-error', this.handleTtsError);
   }
 
-  sendMessage = (message: any, type: string) => {
-    if (this.state.isConnected) {
-      Logger.log_info('Web Socket', 'HOME', 'Message sending', message);
-      this.socket.emit('message', {dataType: type, message: message});
+  startAction = () => {
+    if (this.state.isSoundPlaying) {
+      this.stopLoadingSound();
     } else {
-      Logger.log_info('Web Socket', 'HOME', 'Not connected to server', '');
+      this.playLoadingSound();
     }
   };
+  playLoadingSound = () => {
+    if (this.loadingSound) {
+      this.loadingSound.play(success => {
+        if (success) {
+          this.setState({start_button_text: 'processing'});
+          console.log('Sound played successfully');
+          this.playLoadingSound();
+          this.setState({isSoundPlaying: true});
+        } else {
+          console.error('Sound playback failed');
+        }
+      });
+    }
+  };
+  connectToWebSocket = () => {
+    const wsUrl = `ws://${this.SERVER_IP}:${this.SERVER_PORT}`;
+    console.log('Connecting to WebSocket server:', wsUrl);
 
-  // request permission from the user to access the microphone
-  // this method will execute everytime the app is opened
-  // user will be prompted to allow microphone access if they havent already
-  // if they have already allowed access, then nothing will happen
-  async requestMicrophonePermission() {
-    try {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        {
-          title: 'Microphone Permission',
-          message: 'Dronebuddy app needs access to your microphone ',
-          buttonNeutral: 'Ask Me Later',
-          buttonNegative: 'Cancel',
-          buttonPositive: 'OK',
-        },
-      );
-      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-        Logger.log_info(
-          'System Actions',
-          'HOME',
-          'Microphone Access Enabled',
-          '',
-        );
-      } else {
-        Logger.log_warning(
-          'System Actions',
-          'HOME',
-          'Microphone Permission Denied',
-          '',
-        );
+    this.webSocket = new WebSocket(wsUrl);
+
+    this.webSocket.onopen = () => {
+      console.log('WebSocket connection opened:', wsUrl);
+      this.setState({isConnected: true});
+      this.showNotification('WebSocket connected', false);
+    };
+
+    this.webSocket.onmessage = event => {
+      console.log('Message received from the server:', event.data);
+      try {
+        const message = JSON.parse(event.data);
+        if (message.category === 'READ' && message.message) {
+          this.showNotification('Message received from wizard', false);
+          // this.speak(message.message);
+          this.playAudioFromBase64(message.message);
+        }
+      } catch (err) {
+        console.error('Error parsing message:', err);
       }
-    } catch (err) {
-      console.warn(err);
-      Logger.log_warning(
-        'System Actions',
-        'HOME',
-        'Request Microphone Permission',
-        err,
-      );
+    };
+
+    this.webSocket.onerror = error => {
+      console.error('WebSocket error:', error.message);
+      this.showNotification('WebSocket disconnected', true);
+    };
+
+    this.webSocket.onclose = () => {
+      console.log('WebSocket connection closed:', wsUrl);
+      this.setState({isConnected: false});
+      this.showNotification('WebSocket disconnected', true);
+      this.webSocket = null;
+
+      // Optional: Implement reconnection logic if needed.
+    };
+  };
+
+  requestMicrophonePermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Microphone Permission',
+            message: 'This app needs access to your microphone.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          },
+        );
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('Microphone permission granted');
+        } else {
+          console.log('Microphone permission denied');
+        }
+      } catch (err) {
+        console.warn(err);
+      }
     }
-  }
-
-  onSpeechStart = (e: any) => {
-    this.setState({
-      started: '√',
-    });
   };
 
-  onSpeechRecognized = (e: SpeechRecognizedEvent) => {
-    Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
-    this.setState({
-      recognized: '√',
-      isListening: false,
-      isStartButtonPressed: true,
-    });
+  // Use these state variables in the TTS configuration
+  speak = (text: string) => {
+    Tts.speak(text);
   };
 
-  onSpeechEnd = (e: any) => {
-    this.setState({
-      end: '√',
-      isListening: false,
-      isStartButtonPressed: true,
-    });
+  playAudioFromBase64 = async (base64Audio: string) => {
+    try {
+      // Define file path for temporary audio storage
+      const path = `${RNFS.DocumentDirectoryPath}/temp_audio.mp3`;
+
+      // Convert Base64 string to a file
+      await RNFS.writeFile(path, base64Audio, 'base64');
+
+      // Load the sound file
+      const sound = new Sound(path, '', error => {
+        if (error) {
+          console.log('Failed to load sound:', error);
+          return;
+        }
+        // Play the sound
+        sound.play(success => {
+          if (!success) {
+            console.log('Playback failed due to decoding errors');
+          }
+          sound.release(); // Release the audio file after playing
+        });
+      });
+    } catch (error) {
+      console.error('Error playing Base64 audio:', error);
+    }
   };
 
-  onSpeechError = (e: SpeechErrorEvent) => {
-    Logger.log_error('Speech Recognition', 'MAIN', 'Error', e);
+  handleSend = () => {
+    // {"target": "MOBILE", "type": "SYSTEM", "category": "INPUT", "message": "yes"}
+    const {inputText} = this.state;
+    if (inputText.trim() && this.webSocket && this.state.isConnected) {
+      const message = JSON.stringify({
+        target: 'MOBILE',
+        type: 'SYSTEM',
+        category: 'INPUT',
+        message: inputText,
+      });
+      console.log('Sending:', message);
+      this.showNotification('Message sent to the wizard', false);
 
-    this.setState({
-      error: JSON.stringify(e.error),
-      isListening: false,
-      isStartButtonPressed: true,
-    });
-  };
-
-  onSpeechResults = (e: SpeechResultsEvent) => {
-    Logger.log_info('Speech Recognition', 'MAIN', 'Results', e);
-    // @ts-ignore
-    this.setState({
-      results: e.value,
-      isListening: false,
-      isStartButtonPressed: true,
-    });
-    this.setState({start_button_text: 'Start'});
-    this.sendMessage(this.state.results[0], 'RECOGNITION');
-  };
-
-  onSpeechPartialResults = (e: SpeechResultsEvent) => {
-    Logger.log_info('Speech Recognition', 'MAIN', 'Partial Results', e);
-    // @ts-ignore
-    this.setState({
-      partialResults: e.value,
-    });
-  };
-
-  onSpeechVolumeChanged = (e: any) => {
-    this.setState({
-      pitch: e.value,
-    });
+      this.webSocket.send(message);
+      this.setState({inputText: ''});
+    } else {
+      console.warn('WebSocket is not connected or input is empty');
+    }
   };
 
   _startRecognizing = async () => {
@@ -490,130 +461,141 @@ class Home extends Component<Props, State> {
     }
   };
 
-  _droneTakeOff = () => {
-    // this.drone?.send('takeoff');
-    this.sendMessage('takeoff', 'CONTROL');
-  };
-  _droneLand = () => {
-    // this.drone?.send('land');
-    this.sendMessage('land', 'CONTROL');
-  };
-  _droneGetBattery = () => {
-    // this.drone?.send('battery?');
-    this.sendMessage('battery?', 'CONTROL');
-  };
-
-  speak = (text: string) => {
-    Logger.log_info('VOICE', 'Home', 'Generating Voice', text);
-    Tts.speak(text);
+  _onStart = () => {
+    // update the view to show the user that the app is listening
+    console.log('start method called');
+    this.setState(
+      {isListening: !this.state.isListening, isStartButtonPressed: true},
+      () => {
+        console.log('isListening', this.state.isListening);
+        if (!this.state.isListening) {
+          this._stopRecognizing();
+        } else {
+          this._startRecognizing();
+        }
+      },
+    );
   };
 
-  stop = () => {
-    Tts.stop();
-  };
+  // onSingleTap = (event: {nativeEvent: {state: number}}) => {
+  //   if (
+  //     event.nativeEvent.state === State.ACTIVE &&
+  //     !this.state.isStartButtonPressed
+  //   ) {
+  //     Logger.log_info('User Actions', 'MAIN', 'Single tapped');
+  //     if (this.state.isListening) {
+  //       this._stopRecognizing();
+  //     } else {
+  //       this._onStart();
+  //     }
+  //   }
+  // };
 
-  handleSend = () => {
-    // @ts-ignore
-    const {inputText} = this.state;
-    if (inputText.trim()) {
-      console.log('Sending:', inputText);
-      // Add your send logic here, e.g., send the inputText to a server or handle it within the app
-      this.sendMessage(inputText, 'RECOGNITION');
-      this.setState({inputText: ''}); // Clear the input field after sending
+  onDoubleTap = (event: {nativeEvent: {state: number}}) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      Logger.log_info('User Actions', 'MAIN', 'Double tapped');
+      // Toggle listening state on double tap
+      if (!this.state.isListening) {
+        this._startRecognizing();
+      } else {
+        this._stopRecognizing();
+      }
     }
   };
 
+  // Method to show notifications
+  showNotification = (message: string, isError: boolean = false) => {
+    // @ts-ignore
+    ToastAndroid.showWithGravity(
+      message,
+      ToastAndroid.SHORT,
+      ToastAndroid.CENTER,
+      {
+        backgroundColor: isError ? 'red' : 'green',
+        color: 'white',
+      },
+    );
+  };
+
+  // Create a method to render the connection status dot
+  renderConnectionStatusDot = () => {
+    const dotColor = this.state.isConnected ? 'green' : 'red';
+    return (
+      <View
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 5,
+          backgroundColor: dotColor,
+          marginLeft: 10,
+        }}
+      />
+    );
+  };
+
   render() {
-    // @ts-ignore
-    // @ts-ignore
     return (
       <GestureHandlerRootView style={{flex: 1}}>
         <TapGestureHandler
           ref={this.doubleTapRef}
           numberOfTaps={2}
-          onHandlerStateChange={this.onDoubleTap}
-          waitFor={this.doubleTapRef}>
-          <TapGestureHandler
-            onHandlerStateChange={this.onSingleTap}
-            waitFor={this.doubleTapRef}>
-            <View style={styles.container}>
-              <View style={styles.buttonContainer}>
-                <LinearGradient
-                  colors={['#6FCF62', '#2FA49D']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneTakeOff}>
-                    <Text style={styles.buttonText}>Takeoff</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-                <LinearGradient
-                  colors={['#FD814A', '#FC4A3A']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneLand}>
-                    <Text style={styles.buttonText}>Land</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-                <LinearGradient
-                  colors={['#1D60B7', '#272F92']}
-                  style={styles.circleButton}>
-                  <TouchableOpacity onPress={this._droneGetBattery}>
-                    <Text style={styles.buttonText}>Battery</Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-              </View>
+          onHandlerStateChange={this.onDoubleTap}>
+          <View style={styles.container}>
+            <View style={styles.spacer} />
+            <Text style={styles.helloText}>{this.state.currentProcess}</Text>
 
-              <View style={styles.spacer} />
-              <Text style={styles.helloText}>{this.state.currentProcess}</Text>
-              <TouchableOpacity onPress={this._onStart}>
-                <View style={styles.mainButtonContainer}>
-                  {this.state.isListening ? (
-                    <LottieView
-                      source={require('../../assets/animations/animation.json')}
-                      autoPlay
-                      loop
-                      style={styles.animation}
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={['#466bd9', '#f50cf8']}
-                      style={styles.startButton}
-                      start={{x: 0, y: 0.5}} // Start from the left center
-                      end={{x: 1, y: 0.5}} // End at the right center
-                    >
-                      <Text style={styles.startButtonText}>
-                        {this.state.start_button_text}
-                      </Text>
-                    </LinearGradient>
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <Text style={styles.helloText}>
-                You said : {this.state.results[0]}
-              </Text>
-
-              <View style={styles.flexibleSpace} />
-
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Type something ....."
-                  value={this.state.inputText}
-                  placeholderTextColor="#aaa"
-                  onChangeText={text => this.setState({inputText: text})}
-                />
-                <TouchableOpacity
-                  style={styles.sendButton}
-                  onPress={this.handleSend}>
-                  <Image
-                    source={{
-                      uri: 'https://img.icons8.com/ios-filled/50/ffffff/send.png',
-                    }}
-                    style={styles.sendIcon}
+            {/* Start Button with Single Tap */}
+            <TouchableOpacity onPress={this._onStart}>
+              <View style={styles.mainButtonContainer}>
+                {this.state.isListening ? (
+                  <LottieView
+                    source={require('../../assets/animations/animation.json')}
+                    autoPlay
+                    loop
+                    style={styles.animation}
                   />
-                </TouchableOpacity>
+                ) : (
+                  <LinearGradient
+                    colors={['#466bd9', '#f50cf8']}
+                    style={styles.startButton}
+                    start={{x: 0, y: 0.5}} // Start from the left center
+                    end={{x: 1, y: 0.5}} // End at the right center
+                  >
+                    <Text style={styles.startButtonText}>
+                      {this.state.start_button_text}
+                    </Text>
+                  </LinearGradient>
+                )}
               </View>
+            </TouchableOpacity>
+
+            <Text style={styles.helloText}>
+              You said : {this.state.results[0]}
+            </Text>
+
+            <View style={styles.flexibleSpace} />
+
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Type something ....."
+                value={this.state.inputText}
+                placeholderTextColor="#aaa"
+                onChangeText={text => this.setState({inputText: text})}
+              />
+              <TouchableOpacity
+                style={styles.sendButton}
+                onPress={this.handleSend}>
+                {this.renderConnectionStatusDot()}
+                <Image
+                  source={{
+                    uri: 'https://img.icons8.com/ios-filled/50/ffffff/send.png',
+                  }}
+                  style={styles.sendIcon}
+                />
+              </TouchableOpacity>
             </View>
-          </TapGestureHandler>
+          </View>
         </TapGestureHandler>
       </GestureHandlerRootView>
     );
