@@ -1,79 +1,100 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+To generate documentation for your repository, you can use a `README.md` file as the main documentation file. Below is a template for the `README.md` file based on the context of your project:
 
-# Getting Started
+```markdown
+# React Native Voice Assistant
 
->**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
+## Overview
+This repository contains a React Native application that integrates voice recognition, text-to-speech (TTS), and WebSocket communication. The app is designed to process user voice commands, send them to a server, and receive responses, including audio playback.
 
-## Step 1: Start the Metro Server
+## Features
+- **Voice Recognition**: Uses `@react-native-voice/voice` for speech-to-text functionality.
+- **Text-to-Speech (TTS)**: Uses `react-native-tts` for converting text to speech.
+- **WebSocket Communication**: Enables real-time communication with a server.
+- **Audio Playback**: Plays audio responses from the server using `react-native-sound`.
+- **Gesture Handling**: Supports double-tap gestures using `react-native-gesture-handler`.
+- **Custom Animations**: Includes Lottie animations for visual feedback.
+- **Cross-Platform Support**: Works on both Android and iOS platforms.
 
-First, you will need to start **Metro**, the JavaScript _bundler_ that ships _with_ React Native.
+## Prerequisites
+- Node.js and npm installed.
+- React Native CLI installed.
+- Android Studio or Xcode for running the app on an emulator or device.
 
-To start Metro, run the following command from the _root_ of your React Native project:
+## Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/MalshaDeZ/your-repo-name.git
+   cd your-repo-name
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Install native dependencies:
+   ```bash
+   npx react-native link
+   ```
 
-```bash
-# using npm
-npm start
+## Running the App
+### Android
+1. Start the Metro bundler:
+   ```bash
+   npx react-native start
+   ```
+2. Run the app on an Android device or emulator:
+   ```bash
+   npx react-native run-android
+   ```
 
-# OR using Yarn
-yarn start
-```
+### iOS
+1. Install CocoaPods dependencies:
+   ```bash
+   cd ios && pod install && cd ..
+   ```
+2. Start the Metro bundler:
+   ```bash
+   npx react-native start
+   ```
+3. Run the app on an iOS device or simulator:
+   ```bash
+   npx react-native run-ios
+   ```
 
-## Step 2: Start your Application
+## Project Structure
+- `src/components`: Contains React Native components, including the `Home` screen.
+- `src/utils`: Utility files such as the `Logger`.
+- `assets`: Static assets like animations and sounds.
+- `AppNavigator.tsx`: Navigation configuration for the app.
 
-Let Metro Bundler run in its _own_ terminal. Open a _new_ terminal from the _root_ of your React Native project. Run the following command to start your _Android_ or _iOS_ app:
+## Key Dependencies
+- **React Native**: Core framework for building the app.
+- **@react-native-voice/voice**: Speech-to-text functionality.
+- **react-native-tts**: Text-to-speech functionality.
+- **react-native-sound**: Audio playback.
+- **react-native-gesture-handler**: Gesture handling.
+- **react-native-linear-gradient**: Gradient effects.
+- **lottie-react-native**: Animations.
 
-### For Android
+## Configuration
+### WebSocket Server
+- Update the `SERVER_IP` and `SERVER_PORT` in `src/components/home/Home.tsx` to match your server's IP and port.
 
-```bash
-# using npm
-npm run android
+### Permissions
+- **Android**: Ensure microphone permissions are requested in `AndroidManifest.xml`.
+- **iOS**: Add the following keys to `Info.plist`:
+  ```xml
+  <key>NSMicrophoneUsageDescription</key>
+  <string>This app needs access to your microphone.</string>
+  ```
 
-# OR using Yarn
-yarn android
-```
+## Troubleshooting
+- **WebSocket Connection Issues**: Ensure the server is running and accessible at the specified IP and port.
+- **Audio Playback Issues**: Verify that the audio file is correctly encoded in Base64 format.
 
-### For iOS
+## License
+This project is licensed under the [MIT License](LICENSE).
 
-```bash
-# using npm
-npm run ios
+## Author
+- **MalshaDeZ** - [GitHub Profile](https://github.com/MalshaDeZ)
 
-# OR using Yarn
-yarn ios
-```
 
-If everything is set up _correctly_, you should see your new app running in your _Android Emulator_ or _iOS Simulator_ shortly provided you have set up your emulator/simulator correctly.
-
-This is one way to run your app — you can also run it directly from within Android Studio and Xcode respectively.
-
-## Step 3: Modifying your App
-
-Now that you have successfully run the app, let's modify it.
-
-1. Open `App.tsx` in your text editor of choice and edit some lines.
-2. For **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Developer Menu** (<kbd>Ctrl</kbd> + <kbd>M</kbd> (on Window and Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (on macOS)) to see your changes!
-
-   For **iOS**: Hit <kbd>Cmd ⌘</kbd> + <kbd>R</kbd> in your iOS Simulator to reload the app and see your changes!
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [Introduction to React Native](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you can't get this to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
