@@ -1,7 +1,7 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, TouchableOpacity, Image, StyleSheet, Text } from 'react-native';
+import {NavigationContainer} from '@react-navigation/native';
+import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {View, TouchableOpacity, Image, StyleSheet, Text} from 'react-native';
 import Home from './src/components/home/Home.tsx';
 import SettingsPage from './src/components/settings/Settings.tsx';
 
@@ -19,20 +19,28 @@ const AppNavigator = () => {
         <Stack.Screen
           name="Home"
           component={Home}
-          options={({ navigation }) => ({
+          options={({navigation}) => ({
             headerRight: () => (
-              <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.settingsButton}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Settings')}
+                style={styles.settingsButton}>
                 <Image
-                  source={{ uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/settings.png' }}
+                  source={{
+                    uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/settings.png',
+                  }}
                   style={styles.settingsIcon}
                 />
               </TouchableOpacity>
             ),
             headerLeft: () => (
               <View style={styles.homeContainer}>
-                <TouchableOpacity onPress={() => navigation.navigate('Home')} style={styles.homeButton}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Home')}
+                  style={styles.homeButton}>
                   <Image
-                    source={{ uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/home.png' }}
+                    source={{
+                      uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/home.png',
+                    }}
                     style={styles.homeIcon}
                   />
                 </TouchableOpacity>
@@ -47,20 +55,28 @@ const AppNavigator = () => {
         <Stack.Screen
           name="Settings"
           component={SettingsPage}
-          options={({ navigation }) => ({
+          options={({navigation}) => ({
             headerRight: () => (
-              <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.settingsButton}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Settings')}
+                style={styles.settingsButton}>
                 <Image
-                  source={{ uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/settings.png' }}
+                  source={{
+                    uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/settings.png',
+                  }}
                   style={styles.settingsIcon}
                 />
               </TouchableOpacity>
             ),
             headerLeft: () => (
               <View style={styles.homeContainer}>
-                <TouchableOpacity onPress={() => navigation.navigate('Home')} style={styles.homeButton}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Home')}
+                  style={styles.homeButton}>
                   <Image
-                    source={{ uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/home.png' }}
+                    source={{
+                      uri: 'https://img.icons8.com/ios-glyphs/30/ffffff/home.png',
+                    }}
                     style={styles.homeIcon}
                   />
                 </TouchableOpacity>

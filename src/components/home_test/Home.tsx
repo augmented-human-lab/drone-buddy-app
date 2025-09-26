@@ -69,7 +69,7 @@ class Home extends Component<Props, State> {
   drone: Tello | null = null;
   socket: any;
 
-  SERVER_IP = '172.20.10.2'; // Example IP, replace with your server's IP
+  SERVER_IP = 'localhost'; // Example IP, replace with your server's IP
   SERVER_PORT = '65432'; // The port your Python script is listening on
   constructor(props: Props) {
     super(props);
@@ -412,11 +412,10 @@ class Home extends Component<Props, State> {
             onHandlerStateChange={this.onSingleTap}
             waitFor={this.doubleTapRef}>
             <View style={styles.container}>
-
-             <TouchableHighlight
-                            style={styles.buttonSettings}
-                            onPress={this.navigateToSettings}>
-                            <Text style={styles.buttonText}>Settings</Text>
+              <TouchableHighlight
+                style={styles.buttonSettings}
+                onPress={this.navigateToSettings}>
+                <Text style={styles.buttonText}>Settings</Text>
               </TouchableHighlight>
 
               <TouchableHighlight
@@ -437,16 +436,14 @@ class Home extends Component<Props, State> {
                 <Text style={styles.buttonText}>Battery</Text>
               </TouchableHighlight>
 
-
               <TouchableHighlight
                 style={styles.buttonSpeak}
                 onPress={this.navigateToSettings}>
                 <Text style={styles.buttonText}>Start Speaking</Text>
               </TouchableHighlight>
-                <Text style={styles.transcribedText}>
-                              {this.state.results[0]}
-                            </Text>
-
+              <Text style={styles.transcribedText}>
+                {this.state.results[0]}
+              </Text>
             </View>
           </TapGestureHandler>
         </TapGestureHandler>
