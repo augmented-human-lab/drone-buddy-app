@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
+  Vibration,
 } from 'react-native';
 
 import Voice, {
@@ -92,6 +93,8 @@ class Home extends Component<Props, State> {
   SERVER_PORT = '65432'; // The port your server is listening on
 
   private loadingSound: null;
+  private processAlertSound: Sound | null = null;
+  private vibrationInterval: NodeJS.Timeout | null = null;
 
   constructor(props: Props) {
     super(props);
@@ -191,6 +194,7 @@ class Home extends Component<Props, State> {
         console.log('Sending:', formatted_message);
         this.webSocket.send(formatted_message);
         this.setState({inputText: ''});
+        this.startAlert();
       } else {
         console.warn('WebSocket is not connected or input is empty');
       }
@@ -382,33 +386,41 @@ class Home extends Component<Props, State> {
     Tts.speak(text);
   };
 
-  playAudioFromBase64 = async (base64Audio: string) => {
+  playAudioFromBase64 = async base64Audio => {
+    this.stopAlert();
     try {
-      // Define file path for temporary audio storage
-      const path = `${RNFS.DocumentDirectoryPath}/temp_audio.mp3`;
+      if (!base64Audio) {
+        console.log('No audio data provided');
+        return;
+      }
 
-      // Convert Base64 string to a file
+      const path = `${RNFS.DocumentDirectoryPath}/temp_audio.mp3`;
       await RNFS.writeFile(path, base64Audio, 'base64');
 
-      // Load the sound file
-      const sound = new Sound(path, '', error => {
+      Sound.setCategory('Playback');
+
+      // Stop any currently playing sound before playing a new one
+      if (this.loadingSound) {
+        this.loadingSound.stop(() => console.log('Stopped previous audio'));
+      }
+
+      this.loadingSound = new Sound(path, Sound.MAIN_BUNDLE, error => {
         if (error) {
           console.log('Failed to load sound:', error);
           return;
         }
-        // Play the sound
-        sound.play(success => {
+
+        this.loadingSound.play(success => {
           if (!success) {
-            console.log('Playback failed due to decoding errors');
+            console.log('Playback failed');
           }
-          sound.release(); // Release the audio file after playing
+          this.loadingSound.release();
         });
       });
     } catch (error) {
       console.error('Error playing Base64 audio:', error);
     }
   };
-
   handleSend = () => {
     // {"target": "MOBILE", "type": "SYSTEM", "category": "INPUT", "message": "yes"}
     const {inputText} = this.state;
@@ -431,6 +443,14 @@ class Home extends Component<Props, State> {
 
   _startRecognizing = async () => {
     this.setState({start_button_text: 'Listening'});
+
+    // Stop any ongoing audio playback
+    if (this.loadingSound) {
+      this.loadingSound.stop(() => {
+        console.log('Stopped Base64 audio playback');
+      });
+    }
+
     this.setState({
       recognized: '',
       pitch: '',
@@ -464,6 +484,7 @@ class Home extends Component<Props, State> {
   _onStart = () => {
     // update the view to show the user that the app is listening
     console.log('start method called');
+    this.stopAlert();
     this.setState(
       {isListening: !this.state.isListening, isStartButtonPressed: true},
       () => {
@@ -492,6 +513,7 @@ class Home extends Component<Props, State> {
   // };
 
   onDoubleTap = (event: {nativeEvent: {state: number}}) => {
+    this.stopAlert();
     if (event.nativeEvent.state === State.ACTIVE) {
       Logger.log_info('User Actions', 'MAIN', 'Double tapped');
       // Toggle listening state on double tap
@@ -533,6 +555,48 @@ class Home extends Component<Props, State> {
     );
   };
 
+  startAlert = () => {
+    // Prevent multiple alerts
+    console.log('Starting alert sound and vibration');
+    if (this.processAlertSound || this.vibrationInterval) return;
+
+    this.processAlertSound = new Sound(
+      'alert.mp3',
+      Sound.MAIN_BUNDLE,
+      error => {
+        if (error) {
+          console.error('Failed to load alert sound:', error);
+          return;
+        }
+        this.processAlertSound?.setNumberOfLoops(-1); // Loop indefinitely
+        this.processAlertSound?.play(success => {
+          if (!success) {
+            console.error('Failed to play alert sound');
+          }
+        });
+      },
+    );
+
+    // Vibrate every 1 second
+    this.vibrationInterval = setInterval(() => {
+      Vibration.vibrate(500);
+    }, 1000);
+  };
+
+  stopAlert = () => {
+    if (this.processAlertSound) {
+      this.processAlertSound.stop(() => {
+        this.processAlertSound?.release();
+        this.processAlertSound = null;
+      });
+    }
+
+    if (this.vibrationInterval) {
+      clearInterval(this.vibrationInterval);
+      this.vibrationInterval = null;
+    }
+  };
+
   render() {
     return (
       <GestureHandlerRootView style={{flex: 1}}>
@@ -569,9 +633,9 @@ class Home extends Component<Props, State> {
               </View>
             </TouchableOpacity>
 
-            <Text style={styles.helloText}>
-              You said : {this.state.results[0]}
-            </Text>
+            {/*<Text style={styles.helloText}>*/}
+            {/*  You said: {this.state.results[0]}*/}
+            {/*</Text>*/}
 
             <View style={styles.flexibleSpace} />
 
